@@ -1,7 +1,7 @@
 let scene, camera, renderer, controls, labyrinth, player;
 const CELL_SIZE = 10, WALL_HEIGHT = 5, LABYRINTH_SIZE = 20;
 const WALK_SPEED = 150, RUN_SPEED = 300, JUMP_HEIGHT = 20, GRAVITY = 30;
-const PLAYER_HEIGHT = 2, PLAYER_RADIUS = 0.5, COLLISION_MARGIN = 0.3;
+const PLAYER_HEIGHT = 2, PLAYER_RADIUS = 1.1, COLLISION_MARGIN = 0.3;
 let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false, sprint = false, canJump = false, collisionEnabled = true;
 let prevTime = performance.now(), velocity = new THREE.Vector3(), direction = new THREE.Vector3();
 
@@ -241,8 +241,7 @@ function animate() {
     const delta = (time - prevTime) / 1000;
 
     updateVelocity(delta);
-    const oldPosition = handleMovement(delta);
-    handleCollisions(oldPosition);
+    handleMovement(delta);
 
     if (controls.getObject().position.y < PLAYER_HEIGHT) {
         velocity.y = 0;
@@ -275,11 +274,11 @@ function handleMovement(delta) {
     controls.moveRight(-velocity.x * delta);
     controls.moveForward(-velocity.z * delta);
     controls.getObject().position.y += velocity.y * delta;
-    return oldPosition;
+    handleCollisions(oldPosition);
 }
 
-function handleCollisions(oldPosition) {
-    if (!collisionEnabled) return;
+function handleCollisions(oldPosition) {    
+    if (!collisionEnabled) return;    
 
     const player = controls.getObject();
     const movementVector = player.position.clone().sub(oldPosition);
@@ -289,7 +288,7 @@ function handleCollisions(oldPosition) {
     const rayDirection = movementVector.clone().normalize();
 
     // Set the collision distance to account for the player's radius and margin
-    const collisionDistance = PLAYER_RADIUS + COLLISION_MARGIN;
+    const collisionDistance = 1.5;
 
     // Cast the ray from the player's position in the direction of movement
     raycaster.set(player.position.clone(), rayDirection);
@@ -297,47 +296,51 @@ function handleCollisions(oldPosition) {
     // Check for intersections with all wall objects in the labyrinth
     const intersects = raycaster.intersectObjects(labyrinth.children, true);
 
+
     // If there are intersections, process them
     if (intersects.length > 0) {
         // Initialize a total rejection vector
         let totalRejection = new THREE.Vector3();
-
+        let collision = false;
         // Check each intersection within the collision distance
         intersects.forEach(intersect => {
             if (intersect.distance < collisionDistance) {
+                collision = true;
                 // Calculate the collision normal from the intersected face
                 const collisionNormal = intersect.face.normal.clone();
 
                 // Project the movement vector onto the collision normal to get the rejection vector
-                const rejectionVector = collisionNormal.multiplyScalar(movementVector.dot(collisionNormal));
+                const rejectionVector = collisionNormal.multiplyScalar(1.0*movementVector.dot(collisionNormal));
 
                 // Add the rejection vector to the total rejection to account for multiple walls
                 totalRejection.add(rejectionVector);
             }
         });
-
-        // Apply the total rejection vector to the player's movement
-        const adjustedMovement = movementVector.sub(totalRejection);
+        if(!collision) return false;
 
         // Update the player's position using the adjusted movement
-        player.position.copy(oldPosition).add(adjustedMovement);
+        player.position.sub(totalRejection);
 
+        // Before updating velocity, convert the rejection vector to the camera's coordinate system
+        const camera = controls.getObject(); // This is your player or camera object
+
+        // Create a matrix to convert world coordinates to the camera's local coordinates
+        const worldToCameraMatrix = new THREE.Matrix4();
+        worldToCameraMatrix.makeRotationFromQuaternion(camera.quaternion);
+
+        // Apply the inverse of the matrix to the rejection vector
+        const relativeRejection = totalRejection.clone().applyMatrix4(worldToCameraMatrix);
+        
         // Adjust the velocity to remove the component along the collision normal
-        const velocityNormal = totalRejection.normalize().multiplyScalar(velocity.dot(totalRejection.normalize()));
-        velocity.sub(velocityNormal);  // Remove velocity in the direction of the rejection normal
+        const velocityRejection = relativeRejection.normalize().multiplyScalar(velocity.dot(relativeRejection.normalize()));
+        velocity.sub(velocityRejection);  // Remove velocity in the direction of the rejection normal
 
         // Return early since a collision occurred and movement has been adjusted
         return true;
     }
 
-    // If no collisions, apply the normal movement
-    player.position.add(movementVector);
+    return false
 }
-
-
-
-
-
 
 function onKeyDown(event) {
     switch (event.code) {
