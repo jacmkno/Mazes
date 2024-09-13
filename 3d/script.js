@@ -8,9 +8,9 @@ let prevTime = performance.now(), velocity = new THREE.Vector3(), direction = ne
 function init() {
     setupScene();
     setupPlayer();
-    setupControls();
     setupEventListeners();
-    generateLabyrinth();
+    drawLabyrinth();
+    resetPlayerPosition();
     animate();
     window.addEventListener('resize', onWindowResize, false);
 }
@@ -35,13 +35,9 @@ function setupScene() {
 
 function setupPlayer() {
     player = new THREE.Group();
-    player.position.set(CELL_SIZE / 2, PLAYER_HEIGHT, CELL_SIZE / 2);
     scene.add(player);
     camera.position.set(0, 0, 0);
     player.add(camera);
-}
-
-function setupControls() {
     controls = new THREE.PointerLockControls(camera, document.body);
     scene.add(controls.getObject());
 }
@@ -52,60 +48,102 @@ function setupEventListeners() {
     document.addEventListener('click', () => controls.lock());
     controls.addEventListener('lock', () => document.getElementById('instructions').style.display = 'none');
     controls.addEventListener('unlock', () => document.getElementById('instructions').style.display = 'block');
-    document.getElementById('generateBtn').addEventListener('click', generateLabyrinth);
+    document.getElementById('generateBtn').addEventListener('click', ()=>drawLabyrinth());
     document.getElementById('saveBtn').addEventListener('click', saveLabyrinth);
     document.getElementById('loadBtn').addEventListener('click', () => document.getElementById('fileInput').click());
     document.getElementById('fileInput').addEventListener('change', loadLabyrinth);
     document.getElementById('toggleCollisionBtn').addEventListener('click', toggleCollision);
 }
 
-function generateLabyrinth() {
-    if (labyrinth) scene.remove(labyrinth);
-    labyrinth = new THREE.Group();
-    scene.add(labyrinth);
+function generateLabyrinth(seed = null, width=20, height=20) {
+    // From: https://github.com/professor-l/mazes/blob/master/scripts/backtracking.js
 
-    const matrix = generateMatrix();
-    const wallGeometry = new THREE.BoxGeometry(CELL_SIZE, WALL_HEIGHT, CELL_SIZE);
-    const wallTexture = new THREE.TextureLoader().load('https://threejs.org/examples/textures/brick_diffuse.jpg');
-    const wallMaterial = new THREE.MeshPhongMaterial({ map: wallTexture });
-
-    for (let i = 0; i < LABYRINTH_SIZE; i++) {
-        for (let j = 0; j < LABYRINTH_SIZE; j++) {
-            if (matrix[i][j] === 1) {
-                const wall = new THREE.Mesh(wallGeometry, wallMaterial);
-                wall.position.set(i * CELL_SIZE + CELL_SIZE / 2, WALL_HEIGHT / 2, j * CELL_SIZE + CELL_SIZE / 2);
-                wall.castShadow = true;
-                wall.receiveShadow = true;
-                labyrinth.add(wall);
+    function neighbors(maze, ic, jc) {
+        var final = [];
+        for (var i = 0; i < 4; i++) {
+            var n = [ic, jc];
+            n[i % 2] += ((Math.floor(i / 2) * 2) || -2);
+            if (n[0] < maze.length && 
+                n[1] < maze[0].length && 
+                n[0] > 0 && 
+                n[1] > 0) {
+                
+                if (maze[n[0]][n[1]] == 1) {
+                    final.push(n);
+                }
             }
         }
+        return final;
     }
 
-    setupFloor();
-    resetPlayerPosition();
-    localStorage.setItem('labyrinth', JSON.stringify(matrix));
-}
-
-function generateMatrix() {
-    const matrix = Array(LABYRINTH_SIZE).fill().map(() => Array(LABYRINTH_SIZE).fill(1));
-    const stack = [[1, 1]];
+    // Make them odd
+    width -= width % 2; width++;
+    height -= height % 2; height++;
     
-    while (stack.length > 0) {
-        const [x, y] = stack.pop();
-        matrix[x][y] = 0;
-
-        const directions = [[0, -2], [2, 0], [0, 2], [-2, 0]].sort(() => Math.random() - 0.5);
-
-        for (const [dx, dy] of directions) {
-            const nx = x + dx, ny = y + dy;
-            if (nx > 0 && nx < LABYRINTH_SIZE - 1 && ny > 0 && ny < LABYRINTH_SIZE - 1 && matrix[nx][ny] === 1) {
-                matrix[x + dx / 2][y + dy / 2] = 0;
-                stack.push([nx, ny]);
-            }
+    // Fill maze with 1's (walls)
+    var maze = [];
+    for (var i = 0; i < height; i++) {
+        maze.push([]);
+        for (var j = 0; j < width; j++) {
+            maze[i].push(1);
         }
     }
-    return matrix;
+    
+    // Opening at top - start of maze
+    maze[0][1] = 0;
+    
+    var start = [];
+    do {
+        start[0] = Math.floor(Math.random() * height)
+    } while (start[0] % 2 == 0);
+    do {
+        start[1] = Math.floor(Math.random() * width)
+    } while (start[1] % 2 == 0);
+    
+    maze[start[0]][start[1]] = 0;
+    
+    // First open cell
+    var openCells = [start];
+    
+    while (openCells.length) {
+        
+        var cell, n;
+        
+        // Add unnecessary element for elegance of code
+        // Allows openCells.pop() at beginning of do while loop
+        openCells.push([-1, -1]);
+        
+        // Define current cell as last element in openCells
+        // and get neighbors, discarding "locked" cells
+        do {
+            openCells.pop();
+            if (openCells.length == 0)
+                break;
+            cell = openCells[openCells.length - 1];
+            n = neighbors(maze, cell[0], cell[1]);
+        } while (n.length == 0 && openCells.length > 0);
+        
+        // If we're done, don't bother continuing
+        if (openCells.length == 0)
+            break;
+        
+        // Choose random neighbor and add it to openCells
+        var choice = n[Math.floor(Math.random() * n.length)];
+        openCells.push(choice);
+        
+        // Set neighbor to 0 (path, not wall)
+        // Set connecting node between cell and choice to 0
+        maze[ choice[0] ][ choice[1] ] = 0;
+        maze[ (choice[0] + cell[0]) / 2 ][ (choice[1] + cell[1]) / 2 ] = 0;
+    }
+    
+    // Opening at bottom - end of maze
+    maze[maze.length - 1][maze[0].length - 2] = 0;
+    maze[maze.length - 2][maze[0].length - 2] = 0;
+    
+    return maze;
 }
+
 
 function setupFloor() {
     const floorGeometry = new THREE.PlaneGeometry(LABYRINTH_SIZE * CELL_SIZE, LABYRINTH_SIZE * CELL_SIZE);
@@ -123,13 +161,32 @@ function setupFloor() {
 }
 
 function resetPlayerPosition() {
-    player.position.set(CELL_SIZE / 2, PLAYER_HEIGHT, CELL_SIZE / 2);
-    controls.getObject().position.set(CELL_SIZE / 2, PLAYER_HEIGHT, CELL_SIZE / 2);
+    let x = 0, z = 0;
+    let found = false;
+
+    // Search for the first non-wall space (value 0) in the labyrinth
+    for (let i = 0; i < LABYRINTH_SIZE; i++) {
+        for (let j = 0; j < LABYRINTH_SIZE; j++) {
+            if (matrix[i][j] === 0) {
+                x = i;
+                z = j;
+                found = true;
+                break; // Exit the loop once the first non-wall cell is found
+            }
+        }
+        if (found) break;
+    }
+
+    // Set the player's position based on the first non-wall cell
+    const posX = x * CELL_SIZE + CELL_SIZE / 2;
+    const posZ = z * CELL_SIZE + CELL_SIZE / 2;
+
+    player.position.set(posX, PLAYER_HEIGHT, posZ);
+    controls.getObject().position.set(posX, PLAYER_HEIGHT, posZ);
     velocity.set(0, 0, 0);
 }
 
 function saveLabyrinth() {
-    const matrix = JSON.parse(localStorage.getItem('labyrinth'));
     const blob = new Blob([JSON.stringify(matrix)], {type: 'application/json'});
     const url = URL.createObjectURL(blob);
     const a =     document.createElement('a');
@@ -146,13 +203,14 @@ function loadLabyrinth(event) {
         reader.onload = function(e) {
             const matrix = JSON.parse(e.target.result);
             localStorage.setItem('labyrinth', JSON.stringify(matrix));
-            generateLabyrinthFromMatrix(matrix);
+            drawLabyrinth(matrix);
         };
         reader.readAsText(file);
     }
 }
 
-function generateLabyrinthFromMatrix(matrix) {
+function drawLabyrinth(inputMatrix = null) {
+    matrix = inputMatrix??generateLabyrinth();
     if (labyrinth) scene.remove(labyrinth);
     labyrinth = new THREE.Group();
     scene.add(labyrinth);
@@ -223,64 +281,60 @@ function handleMovement(delta) {
 function handleCollisions(oldPosition) {
     if (!collisionEnabled) return;
 
-    const matrix = JSON.parse(localStorage.getItem('labyrinth'));
-    const playerX = Math.floor(controls.getObject().position.x / CELL_SIZE);
-    const playerZ = Math.floor(controls.getObject().position.z / CELL_SIZE);
+    const player = controls.getObject();
+    const movementVector = player.position.clone().sub(oldPosition);
 
-    const movementVector = controls.getObject().position.clone().sub(oldPosition);
+    // Create a raycaster to detect collisions based on movement
+    const raycaster = new THREE.Raycaster();
+    const rayDirection = movementVector.clone().normalize();
 
-    const checkCollision = (x, z) => {
-        if (x >= 0 && x < LABYRINTH_SIZE && z >= 0 && z < LABYRINTH_SIZE && matrix[x][z] === 1) {
-            const wallMinX = x * CELL_SIZE;
-            const wallMaxX = (x + 1) * CELL_SIZE;
-            const wallMinZ = z * CELL_SIZE;
-            const wallMaxZ = (z + 1) * CELL_SIZE;
+    // Set the collision distance to account for the player's radius and margin
+    const collisionDistance = PLAYER_RADIUS + COLLISION_MARGIN;
 
-            const playerMinX = controls.getObject().position.x - PLAYER_RADIUS - COLLISION_MARGIN;
-            const playerMaxX = controls.getObject().position.x + PLAYER_RADIUS + COLLISION_MARGIN;
-            const playerMinZ = controls.getObject().position.z - PLAYER_RADIUS - COLLISION_MARGIN;
-            const playerMaxZ = controls.getObject().position.z + PLAYER_RADIUS + COLLISION_MARGIN;
+    // Cast the ray from the player's position in the direction of movement
+    raycaster.set(player.position.clone(), rayDirection);
 
-            if (playerMaxX > wallMinX && playerMinX < wallMaxX &&
-                playerMaxZ > wallMinZ && playerMinZ < wallMaxZ) {
-                
-                const overlapX = Math.min(playerMaxX - wallMinX, wallMaxX - playerMinX);
-                const overlapZ = Math.min(playerMaxZ - wallMinZ, wallMaxZ - playerMinZ);
+    // Check for intersections with all wall objects in the labyrinth
+    const intersects = raycaster.intersectObjects(labyrinth.children, true);
 
-                let collisionNormal = new THREE.Vector3();
-                if (overlapX < overlapZ) {
-                    // Collision is mostly along the X axis
-                    collisionNormal.set((playerMinX < wallMinX) ? -1 : 1, 0, 0);
-                } else {
-                    // Collision is mostly along the Z axis
-                    collisionNormal.set(0, 0, (playerMinZ < wallMinZ) ? -1 : 1);
-                }
+    // If there are intersections, process them
+    if (intersects.length > 0) {
+        // Initialize a total rejection vector
+        let totalRejection = new THREE.Vector3();
 
-                // Project the movement vector onto the collision plane
-                const rejectionVector = collisionNormal.clone().multiplyScalar(movementVector.dot(collisionNormal));
-                const adjustedMovement = movementVector.sub(rejectionVector);
+        // Check each intersection within the collision distance
+        intersects.forEach(intersect => {
+            if (intersect.distance < collisionDistance) {
+                // Calculate the collision normal from the intersected face
+                const collisionNormal = intersect.face.normal.clone();
 
-                // Apply the adjusted movement to the player position
-                controls.getObject().position.copy(oldPosition).add(adjustedMovement);
+                // Project the movement vector onto the collision normal to get the rejection vector
+                const rejectionVector = collisionNormal.multiplyScalar(movementVector.dot(collisionNormal));
 
-                // Adjust the velocity to remove the component along the collision normal
-                const velocityNormal = collisionNormal.clone().multiplyScalar(velocity.dot(collisionNormal));
-                velocity.sub(velocityNormal);  // Preserve velocity parallel to the surface
-
-                return true;
+                // Add the rejection vector to the total rejection to account for multiple walls
+                totalRejection.add(rejectionVector);
             }
-        }
-        return false;
-    };
+        });
 
-    if (checkCollision(playerX, playerZ) ||
-        checkCollision(playerX - 1, playerZ) ||
-        checkCollision(playerX + 1, playerZ) ||
-        checkCollision(playerX, playerZ - 1) ||
-        checkCollision(playerX, playerZ + 1)) {
-        // Now, velocity is only reduced along the collision normal, not reset to zero.
+        // Apply the total rejection vector to the player's movement
+        const adjustedMovement = movementVector.sub(totalRejection);
+
+        // Update the player's position using the adjusted movement
+        player.position.copy(oldPosition).add(adjustedMovement);
+
+        // Adjust the velocity to remove the component along the collision normal
+        const velocityNormal = totalRejection.normalize().multiplyScalar(velocity.dot(totalRejection.normalize()));
+        velocity.sub(velocityNormal);  // Remove velocity in the direction of the rejection normal
+
+        // Return early since a collision occurred and movement has been adjusted
+        return true;
     }
+
+    // If no collisions, apply the normal movement
+    player.position.add(movementVector);
 }
+
+
 
 
 
