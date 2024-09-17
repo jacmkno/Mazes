@@ -1,3 +1,6 @@
+// Following instructions from https://chatgpt.com/c/66e90af5-bfac-8005-9811-859a6dfa002b
+// Currently at step 3 which got me stuck. Check the animate function according to instructions.
+
 let scene, camera, renderer, controls, labyrinth, player;
 const CELL_SIZE = 10, WALL_HEIGHT = 5, LABYRINTH_SIZE = 20;
 const WALK_SPEED = 150, RUN_SPEED = 300, JUMP_HEIGHT = 20, GRAVITY = 30;
@@ -5,14 +8,45 @@ const PLAYER_HEIGHT = 2, PLAYER_RADIUS = 1.1, COLLISION_MARGIN = 0.3;
 let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false, sprint = false, canJump = false, collisionEnabled = true;
 let prevTime = performance.now(), velocity = new THREE.Vector3(), direction = new THREE.Vector3();
 
+// CanonJS
+let world;
+let playerBody;
+
 function init() {
+    cannonJS_initWorld();
     setupScene();
     setupPlayer();
     setupEventListeners();
     drawLabyrinth();
     resetPlayerPosition();
+    cannonJS_setupPlayer();
     animate();
     window.addEventListener('resize', onWindowResize, false);
+}
+
+function cannonJS_setupPlayer() {
+    // Create a sphere shape with the player's radius
+    const playerShape = new CANNON.Sphere(PLAYER_RADIUS);
+
+    // Create the physics body with mass > 0 (dynamic body)
+    playerBody = new CANNON.Body({ mass: 1 });
+    playerBody.addShape(playerShape);
+
+    // Set the initial position to match the player's position
+    playerBody.position.set(player.position.x, player.position.y, player.position.z);
+
+    // Add damping to reduce sliding and smooth out movement
+    playerBody.linearDamping = 0.9;
+
+    // Add the player body to the physics world
+    world.addBody(playerBody);
+}
+
+function cannonJS_initWorld() {
+    world = new CANNON.World();
+    world.gravity.set(0, -GRAVITY, 0); // Use your GRAVITY constant (ensure it's appropriate for Cannon.js)
+    world.broadphase = new CANNON.NaiveBroadphase();
+    world.solver.iterations = 10;
 }
 
 function setupScene() {
@@ -158,7 +192,29 @@ function setupFloor() {
     floor.position.set((LABYRINTH_SIZE * CELL_SIZE) / 2, 0, (LABYRINTH_SIZE * CELL_SIZE) / 2);
     floor.receiveShadow = true;
     labyrinth.add(floor);
+    cannonJS_setupFloor(floor);
 }
+
+function cannonJS_setupFloor(floor){
+    // New code to add a physics body for the floor
+    // Create a plane shape for the floor physics body
+    const floorShape = new CANNON.Plane();
+    const floorBody = new CANNON.Body({ mass: 0 }); // mass = 0 makes it static
+    floorBody.addShape(floorShape);
+
+    // Rotate the physics floor to match the Three.js floor rotation
+    floorBody.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2);
+
+    // Position the physics floor
+    floorBody.position.set(floor.position.x, floor.position.y, floor.position.z);
+
+    // Add the floor body to the physics world
+    world.addBody(floorBody);
+
+    // Optional: Store a reference to the physics body in the floor mesh's userData for future use
+    floor.userData.physicsBody = floorBody;  
+}
+
 
 function resetPlayerPosition() {
     let x = 0, z = 0;
@@ -240,6 +296,10 @@ function animate() {
     const time = performance.now();
     const delta = (time - prevTime) / 1000;
 
+    // Step the physics world
+    world.step(1 / 60, delta);
+
+    // Existing movement functions (we'll adjust these in the next steps)
     updateVelocity(delta);
     handleMovement(delta);
 
@@ -249,9 +309,13 @@ function animate() {
         canJump = true;
     }
 
-    prevTime = time;
+    // Synchronize the player's Three.js object position with the physics body's position
+    //controls.getObject().position.copy(playerBody.position);
+
     renderer.render(scene, camera);
+    prevTime = time;
 }
+
 
 function updateVelocity(delta) {
     velocity.x -= velocity.x * 10.0 * delta;
