@@ -1,404 +1,481 @@
-<html><head><base href="https://www.unique-labyrinth-explorer.com/">
-<title>3D Labyrinth Explorer</title>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<style>
-  body { margin: 0; overflow: hidden; font-family: Arial, sans-serif; }
-  canvas { display: block; }
-  #menu {
-    position: absolute;
-    top: 10px;
-    left: 10px;
-    background: rgba(0,0,0,0.7);
-    color: white;
-    padding: 10px;
-    border-radius: 5px;
-  }
-  button {
-    margin: 5px;
-    padding: 5px 10px;
-    background: #4CAF50;
-    color: white;
-    border: none;
-    border-radius: 3px;
-    cursor: pointer;
-  }
-  button:hover {
-    background: #45a049;
-  }
-  #instructions {
-    position: absolute;
-    bottom: 10px;
-    left: 10px;
-    background: rgba(0,0,0,0.7);
-    color: white;
-    padding: 10px;
-    border-radius: 5px;
-  }
-</style>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Labyrinth Explorer</title>
+    <style>
+        body { 
+            margin: 0; 
+            overflow: hidden; 
+            font-family: Arial, sans-serif; 
+        }
+        canvas { 
+            display: block; 
+        }
+        #menu {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            padding: 10px;
+            border-radius: 5px;
+        }
+        button {
+            margin: 5px;
+            padding: 5px 10px;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+        }
+        button:hover {
+            background: #45a049;
+        }
+        #instructions {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            padding: 10px;
+            border-radius: 5px;
+        }
+
+    </style>
 </head>
 <body>
-<div id="menu">
-  <button id="generateBtn">Generate New Labyrinth</button>
-  <button id="saveBtn">Save Labyrinth</button>
-  <button id="loadBtn">Load Labyrinth</button>
-  <button id="toggleCollisionBtn">Enable Wall Collisions</button>
-  <input type="file" id="fileInput" style="display:none;">
-</div>
-<div id="instructions">
-  <p>Click to start | WASD or Arrow Keys: Move | Mouse: Look | Shift: Run | Space: Jump | ESC: Release mouse</p>
-</div>
+    <div id="menu">
+        <button id="generateBtn">Generate New Labyrinth</button>
+        <button id="saveBtn">Save Labyrinth</button>
+        <button id="loadBtn">Load Labyrinth</button>
+        <button id="toggleCollisionBtn">Disable Collision</button>
+        <input type="file" id="fileInput" style="display:none;">
+    </div>
+    <div id="instructions">
+        <p>Click to start | WASD or Arrow Keys: Move | Mouse: Look | Shift: Run | Space: Jump | ESC: Release mouse</p>
+    </div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/PointerLockControls.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/cannon.js/0.6.2/cannon.min.js"></script>
-<script>
-let scene, camera, renderer, controls;
-let labyrinth, player;
-let world, playerBody, floorBody;
-const CELL_SIZE = 10;
-const WALL_HEIGHT = 5;
-const LABYRINTH_SIZE = 20;
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/PointerLockControls.js"></script>
+    <script>
+        let scene, camera, renderer, controls, labyrinth, player;
+        const CELL_SIZE = 10, WALL_HEIGHT = 5, LABYRINTH_SIZE = 20;
+        const WALK_SPEED = 150, RUN_SPEED = 300, JUMP_HEIGHT = 20, GRAVITY = 30;
+        const PLAYER_HEIGHT = 2, PLAYER_RADIUS = 1.1, COLLISION_MARGIN = 0.3;
+        let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false, sprint = false, canJump = false, collisionEnabled = true;
+        let prevTime = performance.now(), velocity = new THREE.Vector3(), direction = new THREE.Vector3();
 
-const WALK_SPEED = 300;
-const RUN_SPEED = 600;
-
-let moveForward = false;
-let moveBackward = false;
-let moveLeft = false;
-let moveRight = false;
-let sprint = false;
-let canJump = false;
-
-let wallCollisionsEnabled = false;
-let prevTime = performance.now();
-const PLAYER_HEIGHT = 2;
-const PLAYER_RADIUS = 0.5;
-
-function init() {
-    setupScene();
-    setupPhysicsWorld();
-    setupPlayer();
-    setupEventListeners();
-    drawLabyrinth();
-    resetPlayerPosition();
-    animate();
-    window.addEventListener('resize', onWindowResize, false);
-
-    floorBody.collisionResponse = true;
-}
-
-function setupScene() {
-    scene = new THREE.Scene();
-    scene.fog = new THREE.Fog(0x87CEEB, 0, 500);
-  
-    camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-    renderer = new THREE.WebGLRenderer({ antialias: true });
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.setClearColor(0x87CEEB);
-    renderer.shadowMap.enabled = true;
-    document.body.appendChild(renderer.domElement);
-
-    const light = new THREE.DirectionalLight(0xffffff, 1);
-    light.position.set(50, 100, 50);
-    light.castShadow = true;
-    scene.add(light);
-
-    const ambientLight = new THREE.AmbientLight(0x404040);
-    scene.add(ambientLight);
-}
-
-function setupPhysicsWorld() {
-    world = new CANNON.World();
-    world.gravity.set(0, -9.82, 0);
-    world.broadphase = new CANNON.NaiveBroadphase();
-    world.solver.iterations = 10;
-
-    const floorShape = new CANNON.Plane();
-    floorBody = new CANNON.Body({ mass: 0 });
-    floorBody.addShape(floorShape);
-    floorBody.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2);
-    world.addBody(floorBody);
-}
-
-function setupPlayer() {
-    player = new THREE.Group();
-    scene.add(player);
-    camera.position.set(0, PLAYER_HEIGHT, 0);
-    player.add(camera);
-    controls = new THREE.PointerLockControls(camera, document.body);
-    scene.add(controls.getObject());
-
-    const playerShape = new CANNON.Sphere(PLAYER_RADIUS);
-    playerBody = new CANNON.Body({
-        mass: 5,
-        position: new CANNON.Vec3(0, PLAYER_HEIGHT, 0),
-        shape: playerShape,
-        material: new CANNON.Material(),
-    });
-    world.addBody(playerBody);
-
-    const playerPhysicsMaterial = new CANNON.Material();
-    const floorPhysicsMaterial = new CANNON.Material();
-    const playerFloorContactMaterial = new CANNON.ContactMaterial(
-        playerPhysicsMaterial,
-        floorPhysicsMaterial,
-        { friction: 0.0, restitution: 0.3 }
-    );
-    world.addContactMaterial(playerFloorContactMaterial);
-
-    playerBody.material = playerPhysicsMaterial;
-    floorBody.material = floorPhysicsMaterial;
-}
-
-function setupEventListeners() {
-    document.addEventListener('keydown', onKeyDown);
-    document.addEventListener('keyup', onKeyUp);
-    document.addEventListener('click', function () {
-        controls.lock();
-    });
-
-    controls.addEventListener('lock', function () {
-        document.getElementById('instructions').style.display = 'none';
-    });
-
-    controls.addEventListener('unlock', function () {
-        document.getElementById('instructions').style.display = 'block';
-    });
-
-    document.getElementById('generateBtn').addEventListener('click', drawLabyrinth);
-    document.getElementById('saveBtn').addEventListener('click', saveLabyrinth);
-    document.getElementById('loadBtn').addEventListener('click', () => document.getElementById('fileInput').click());
-    document.getElementById('fileInput').addEventListener('change', loadLabyrinth);
-    document.getElementById('toggleCollisionBtn').addEventListener('click', toggleWallCollisions);
-}
-
-function toggleWallCollisions() {
-    wallCollisionsEnabled = !wallCollisionsEnabled;
-    const btn = document.getElementById('toggleCollisionBtn');
-    btn.textContent = wallCollisionsEnabled ? 'Disable Wall Collisions' : 'Enable Wall Collisions';
-
-    world.bodies.forEach(body => {
-        if (body !== floorBody && body !== playerBody) {
-            body.collisionResponse = wallCollisionsEnabled;
+        function init() {
+            setupScene();
+            setupPlayer();
+            setupEventListeners();
+            drawLabyrinth();
+            resetPlayerPosition();
+            animate();
+            window.addEventListener('resize', onWindowResize, false);
         }
-    });
-}
 
-function drawLabyrinth(inputMatrix = null) {
-    if (labyrinth) {
-        scene.remove(labyrinth);
-    }
-    labyrinth = new THREE.Group();
-    scene.add(labyrinth);
+        function setupScene() {
+            scene = new THREE.Scene();
+            scene.fog = new THREE.Fog(0x87CEEB, 0, 500);
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setClearColor(0x87CEEB);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            document.body.appendChild(renderer.domElement);
+            
+            const light = new THREE.DirectionalLight(0xffffff, 1);
+            light.position.set(50, 100, 50);
+            light.castShadow = true;
+            scene.add(light);
+            scene.add(new THREE.AmbientLight(0x404040));
+        }
 
-    const matrix = inputMatrix || generateMatrix();
-    const wallGeometry = new THREE.BoxGeometry(CELL_SIZE, WALL_HEIGHT, CELL_SIZE);
-    const wallTexture = new THREE.TextureLoader().load('https://threejs.org/examples/textures/brick_diffuse.jpg');
-    const wallMaterial = new THREE.MeshPhongMaterial({ map: wallTexture });
+        function setupPlayer() {
+            player = new THREE.Group();
+            scene.add(player);
+            camera.position.set(0, 0, 0);
+            player.add(camera);
+            controls = new THREE.PointerLockControls(camera, document.body);
+            scene.add(controls.getObject());
+        }
 
-    for (let i = 0; i < LABYRINTH_SIZE; i++) {
-        for (let j = 0; j < LABYRINTH_SIZE; j++) {
-            if (matrix[i][j] === 1) {
-                const wall = new THREE.Mesh(wallGeometry, wallMaterial);
-                wall.position.set(i * CELL_SIZE + CELL_SIZE / 2, WALL_HEIGHT / 2, j * CELL_SIZE + CELL_SIZE / 2);
-                wall.castShadow = true;
-                wall.receiveShadow = true;
-                labyrinth.add(wall);
+        function setupEventListeners() {
+            document.addEventListener('keydown', onKeyDown);
+            document.addEventListener('keyup', onKeyUp);
+            document.addEventListener('click', () => controls.lock());
+            controls.addEventListener('lock', () => document.getElementById('instructions').style.display = 'none');
+            controls.addEventListener('unlock', () => document.getElementById('instructions').style.display = 'block');
+            document.getElementById('generateBtn').addEventListener('click', ()=>drawLabyrinth());
+            document.getElementById('saveBtn').addEventListener('click', saveLabyrinth);
+            document.getElementById('loadBtn').addEventListener('click', () => document.getElementById('fileInput').click());
+            document.getElementById('fileInput').addEventListener('change', loadLabyrinth);
+            document.getElementById('toggleCollisionBtn').addEventListener('click', toggleCollision);
+        }
 
-                const wallShape = new CANNON.Box(new CANNON.Vec3(CELL_SIZE / 2, WALL_HEIGHT / 2, CELL_SIZE / 2));
-                const wallBody = new CANNON.Body({
-                    mass: 0,
-                    position: new CANNON.Vec3(wall.position.x, wall.position.y, wall.position.z),
-                    shape: wallShape,
-                    collisionResponse: wallCollisionsEnabled
+        function generateLabyrinth(seed = null, width=20, height=20) {
+            // From: https://github.com/professor-l/mazes/blob/master/scripts/backtracking.js
+
+            function neighbors(maze, ic, jc) {
+                var final = [];
+                for (var i = 0; i < 4; i++) {
+                    var n = [ic, jc];
+                    n[i % 2] += ((Math.floor(i / 2) * 2) || -2);
+                    if (n[0] < maze.length && 
+                        n[1] < maze[0].length && 
+                        n[0] > 0 && 
+                        n[1] > 0) {
+                        
+                        if (maze[n[0]][n[1]] == 1) {
+                            final.push(n);
+                        }
+                    }
+                }
+                return final;
+            }
+
+            // Make them odd
+            width -= width % 2; width++;
+            height -= height % 2; height++;
+            
+            // Fill maze with 1's (walls)
+            var maze = [];
+            for (var i = 0; i < height; i++) {
+                maze.push([]);
+                for (var j = 0; j < width; j++) {
+                    maze[i].push(1);
+                }
+            }
+            
+            // Opening at top - start of maze
+            maze[0][1] = 0;
+            
+            var start = [];
+            do {
+                start[0] = Math.floor(Math.random() * height)
+            } while (start[0] % 2 == 0);
+            do {
+                start[1] = Math.floor(Math.random() * width)
+            } while (start[1] % 2 == 0);
+            
+            maze[start[0]][start[1]] = 0;
+            
+            // First open cell
+            var openCells = [start];
+            
+            while (openCells.length) {
+                
+                var cell, n;
+                
+                // Add unnecessary element for elegance of code
+                // Allows openCells.pop() at beginning of do while loop
+                openCells.push([-1, -1]);
+                
+                // Define current cell as last element in openCells
+                // and get neighbors, discarding "locked" cells
+                do {
+                    openCells.pop();
+                    if (openCells.length == 0)
+                        break;
+                    cell = openCells[openCells.length - 1];
+                    n = neighbors(maze, cell[0], cell[1]);
+                } while (n.length == 0 && openCells.length > 0);
+                
+                // If we're done, don't bother continuing
+                if (openCells.length == 0)
+                    break;
+                
+                // Choose random neighbor and add it to openCells
+                var choice = n[Math.floor(Math.random() * n.length)];
+                openCells.push(choice);
+                
+                // Set neighbor to 0 (path, not wall)
+                // Set connecting node between cell and choice to 0
+                maze[ choice[0] ][ choice[1] ] = 0;
+                maze[ (choice[0] + cell[0]) / 2 ][ (choice[1] + cell[1]) / 2 ] = 0;
+            }
+            
+            // Opening at bottom - end of maze
+            maze[maze.length - 1][maze[0].length - 2] = 0;
+            maze[maze.length - 2][maze[0].length - 2] = 0;
+            
+            return maze;
+        }
+
+
+        function setupFloor() {
+            const floorGeometry = new THREE.PlaneGeometry(LABYRINTH_SIZE * CELL_SIZE, LABYRINTH_SIZE * CELL_SIZE);
+            const floorTexture = new THREE.TextureLoader().load('https://threejs.org/examples/textures/hardwood2_diffuse.jpg');
+            floorTexture.wrapS = THREE.RepeatWrapping;
+            floorTexture.wrapT = THREE.RepeatWrapping;
+            floorTexture.repeat.set(LABYRINTH_SIZE, LABYRINTH_SIZE);
+        
+            const floorMaterial = new THREE.MeshPhongMaterial({ map: floorTexture });
+            const floor = new THREE.Mesh(floorGeometry, floorMaterial);
+            floor.rotation.x = -Math.PI / 2;
+            floor.position.set((LABYRINTH_SIZE * CELL_SIZE) / 2, 0, (LABYRINTH_SIZE * CELL_SIZE) / 2);
+            floor.receiveShadow = true;
+            labyrinth.add(floor);
+        }
+
+        function resetPlayerPosition() {
+            let x = 0, z = 0;
+            let found = false;
+
+            // Search for the first non-wall space (value 0) in the labyrinth
+            for (let i = 0; i < LABYRINTH_SIZE; i++) {
+                for (let j = 0; j < LABYRINTH_SIZE; j++) {
+                    if (matrix[i][j] === 0) {
+                        x = i;
+                        z = j;
+                        found = true;
+                        break; // Exit the loop once the first non-wall cell is found
+                    }
+                }
+                if (found) break;
+            }
+
+            // Set the player's position based on the first non-wall cell
+            const posX = x * CELL_SIZE + CELL_SIZE / 2;
+            const posZ = z * CELL_SIZE + CELL_SIZE / 2;
+
+            player.position.set(posX, PLAYER_HEIGHT, posZ);
+            controls.getObject().position.set(posX, PLAYER_HEIGHT, posZ);
+            velocity.set(0, 0, 0);
+        }
+
+        function saveLabyrinth() {
+            const blob = new Blob([JSON.stringify(matrix)], {type: 'application/json'});
+            const url = URL.createObjectURL(blob);
+            const a =     document.createElement('a');
+            a.href = url;
+            a.download = 'labyrinth.json';
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        function loadLabyrinth(event) {
+            const file = event.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const matrix = JSON.parse(e.target.result);
+                    localStorage.setItem('labyrinth', JSON.stringify(matrix));
+                    drawLabyrinth(matrix);
+                };
+                reader.readAsText(file);
+            }
+        }
+
+        function drawLabyrinth(inputMatrix = null) {
+            matrix = inputMatrix??generateLabyrinth();
+            if (labyrinth) scene.remove(labyrinth);
+            labyrinth = new THREE.Group();
+            scene.add(labyrinth);
+
+            const wallGeometry = new THREE.BoxGeometry(CELL_SIZE, WALL_HEIGHT, CELL_SIZE);
+            const wallTexture = new THREE.TextureLoader().load('https://threejs.org/examples/textures/brick_diffuse.jpg');
+            const wallMaterial = new THREE.MeshPhongMaterial({ map: wallTexture });
+
+            for (let i = 0; i < LABYRINTH_SIZE; i++) {
+                for (let j = 0; j < LABYRINTH_SIZE; j++) {
+                    if (matrix[i][j] === 1) {
+                        const wall = new THREE.Mesh(wallGeometry, wallMaterial);
+                        wall.position.set(i * CELL_SIZE + CELL_SIZE / 2, WALL_HEIGHT / 2, j * CELL_SIZE + CELL_SIZE / 2);
+                        wall.castShadow = true;
+                        wall.receiveShadow = true;
+                        labyrinth.add(wall);
+                    }
+                }
+            }
+
+            setupFloor();
+            resetPlayerPosition();
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const time = performance.now();
+            const delta = (time - prevTime) / 1000;
+
+            updateVelocity(delta);
+            handleMovement(delta);
+
+            if (controls.getObject().position.y < PLAYER_HEIGHT) {
+                velocity.y = 0;
+                controls.getObject().position.y = PLAYER_HEIGHT;
+                canJump = true;
+            }
+
+            prevTime = time;
+            renderer.render(scene, camera);
+        }
+
+        function updateVelocity(delta) {
+            velocity.x -= velocity.x * 10.0 * delta;
+            velocity.z -= velocity.z * 10.0 * delta;
+            velocity.y -= GRAVITY * delta; // Apply gravity
+        }
+
+        function handleMovement(delta) {
+            const oldPosition = controls.getObject().position.clone();
+
+            direction.z = Number(moveForward) - Number(moveBackward);
+            direction.x = Number(moveRight) - Number(moveLeft);
+            direction.normalize();
+
+            const speed = sprint ? RUN_SPEED : WALK_SPEED;
+
+            if (moveForward || moveBackward) velocity.z -= direction.z * speed * delta;
+            if (moveLeft || moveRight) velocity.x -= direction.x * speed * delta;
+
+            controls.moveRight(-velocity.x * delta);
+            controls.moveForward(-velocity.z * delta);
+            controls.getObject().position.y += velocity.y * delta;
+            handleCollisions(oldPosition);
+        }
+
+        function handleCollisions(oldPosition) {    
+            if (!collisionEnabled) return;    
+
+            const player = controls.getObject();
+            const movementVector = player.position.clone().sub(oldPosition);
+
+            // Create a raycaster to detect collisions based on movement
+            const raycaster = new THREE.Raycaster();
+            const rayDirection = movementVector.clone().normalize();
+
+            // Set the collision distance to account for the player's radius and margin
+            const collisionDistance = 1.5;
+
+            // Cast the ray from the player's position in the direction of movement
+            raycaster.set(player.position.clone(), rayDirection);
+
+            // Check for intersections with all wall objects in the labyrinth
+            const intersects = raycaster.intersectObjects(labyrinth.children, true);
+
+
+            // If there are intersections, process them
+            if (intersects.length > 0) {
+                // Initialize a total rejection vector
+                let totalRejection = new THREE.Vector3();
+                let collision = false;
+                // Check each intersection within the collision distance
+                intersects.forEach(intersect => {
+                    if (intersect.distance < collisionDistance) {
+                        collision = true;
+                        // Calculate the collision normal from the intersected face
+                        const collisionNormal = intersect.face.normal.clone();
+
+                        // Project the movement vector onto the collision normal to get the rejection vector
+                        const rejectionVector = collisionNormal.multiplyScalar(1.0*movementVector.dot(collisionNormal));
+
+                        // Add the rejection vector to the total rejection to account for multiple walls
+                        totalRejection.add(rejectionVector);
+                    }
                 });
-                world.addBody(wallBody);
+                if(!collision) return false;
+
+                // Update the player's position using the adjusted movement
+                player.position.sub(totalRejection);
+
+                // Before updating velocity, convert the rejection vector to the camera's coordinate system
+                const camera = controls.getObject(); // This is your player or camera object
+
+                // Create a matrix to convert world coordinates to the camera's local coordinates
+                const worldToCameraMatrix = new THREE.Matrix4();
+                worldToCameraMatrix.makeRotationFromQuaternion(camera.quaternion);
+
+                // Apply the inverse of the matrix to the rejection vector
+                const relativeRejection = totalRejection.clone().applyMatrix4(worldToCameraMatrix);
+                
+                // Adjust the velocity to remove the component along the collision normal
+                const velocityRejection = relativeRejection.normalize().multiplyScalar(velocity.dot(relativeRejection.normalize()));
+                velocity.sub(velocityRejection);  // Remove velocity in the direction of the rejection normal
+
+                // Return early since a collision occurred and movement has been adjusted
+                return true;
+            }
+
+            return false
+        }
+
+        function onKeyDown(event) {
+            switch (event.code) {
+                case 'ArrowUp':
+                case 'KeyW':
+                    moveForward = true;
+                    break;
+                case 'ArrowLeft':
+                case 'KeyA':
+                    moveLeft = true;
+                    break;
+                case 'ArrowDown':
+                case 'KeyS':
+                    moveBackward = true;
+                    break;
+                case 'ArrowRight':
+                case 'KeyD':
+                    moveRight = true;
+                    break;
+                case 'ShiftLeft':
+                case 'ShiftRight':
+                    sprint = true;
+                    break;
+                case 'Space':
+                    if (canJump) {
+                        velocity.y += JUMP_HEIGHT;
+                        canJump = false;
+                    }
+                    break;
             }
         }
-    }
 
-    const floorGeometry = new THREE.PlaneGeometry(LABYRINTH_SIZE * CELL_SIZE, LABYRINTH_SIZE * CELL_SIZE);
-    const floorTexture = new THREE.TextureLoader().load('https://threejs.org/examples/textures/hardwood2_diffuse.jpg');
-    floorTexture.wrapS = THREE.RepeatWrapping;
-    floorTexture.wrapT = THREE.RepeatWrapping;
-    floorTexture.repeat.set(LABYRINTH_SIZE, LABYRINTH_SIZE);
-    const floorMaterial = new THREE.MeshPhongMaterial({ map: floorTexture });
-    const floor = new THREE.Mesh(floorGeometry, floorMaterial);
-    floor.rotation.x = -Math.PI / 2;
-    floor.position.y = 0;
-    floor.receiveShadow = true;
-    labyrinth.add(floor);
-
-    localStorage.setItem('labyrinth', JSON.stringify(matrix));
-}
-
-function generateMatrix() {
-    const matrix = Array(LABYRINTH_SIZE).fill().map(() => Array(LABYRINTH_SIZE).fill(1));
-    const stack = [[1, 1]];
-
-    while (stack.length > 0) {
-        const [x, y] = stack.pop();
-        matrix[x][y] = 0;
-
-        const directions = [[0, -2], [2, 0], [0, 2], [-2, 0]].sort(() => Math.random() - 0.5);
-
-        for (const [dx, dy] of directions) {
-            const nx = x + dx, ny = y + dy;
-            if (nx > 0 && nx < LABYRINTH_SIZE - 1 && ny > 0 && ny < LABYRINTH_SIZE - 1 && matrix[nx][ny] === 1) {
-                matrix[x + dx/2][y + dy/2] = 0;
-                stack.push([nx, ny]);
+        function onKeyUp(event) {
+            switch (event.code) {
+                case 'ArrowUp':
+                case 'KeyW':
+                    moveForward = false;
+                    break;
+                case 'ArrowLeft':
+                case 'KeyA':
+                    moveLeft = false;
+                    break;
+                case 'ArrowDown':
+                case 'KeyS':
+                    moveBackward = false;
+                    break;
+                case 'ArrowRight':
+                case 'KeyD':
+                    moveRight = false;
+                    break;
+                case 'ShiftLeft':
+                case 'ShiftRight':
+                    sprint = false;
+                    break;
             }
         }
-    }
 
-    return matrix;
-}
-
-function saveLabyrinth() {
-    const matrix = JSON.parse(localStorage.getItem('labyrinth'));
-    const blob = new Blob([JSON.stringify(matrix)], {type: 'application/json'});
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'labyrinth.json';
-    a.click();
-    URL.revokeObjectURL(url);
-}
-
-function loadLabyrinth(event) {
-    const file = event.target.files[0];
-    if (file) {
-        const reader = new FileReader();
-        reader.onload = function(e) {
-            const matrix = JSON.parse(e.target.result);
-            localStorage.setItem('labyrinth', JSON.stringify(matrix));
-            drawLabyrinth(matrix);
-        };
-        reader.readAsText(file);
-    }
-}
-
-function animate() {
-    requestAnimationFrame(animate);
-    const time = performance.now();
-    const delta = (time - prevTime) / 1000;
-
-    world.step(1 / 60);
-
-    updatePlayerPosition();
-    handleMovement(delta);
-
-    prevTime = time;
-    renderer.render(scene, camera);
-}
-
-function updatePlayerPosition() {
-    controls.getObject().position.copy(playerBody.position);
-    controls.getObject().position.y += PLAYER_HEIGHT / 2;
-}
-
-function handleMovement(delta) {
-    const inputVelocity = new THREE.Vector3();
-    const speed = sprint ? RUN_SPEED : WALK_SPEED;
-
-    if (moveForward) inputVelocity.z = -speed * delta;
-    if (moveBackward) inputVelocity.z = speed * delta;
-    if (moveLeft) inputVelocity.x = -speed * delta;
-    if (moveRight) inputVelocity.x = speed * delta;
-
-    inputVelocity.applyQuaternion(camera.quaternion);
-
-    playerBody.velocity.x = inputVelocity.x;
-    playerBody.velocity.z = inputVelocity.z;
-
-    if (canJump && controls.isLocked) {
-        playerBody.velocity.y = 10;
-        canJump = false;
-    }
-}
-
-function resetPlayerPosition() {
-    let x = 0, z = 0;
-    const matrix = JSON.parse(localStorage.getItem('labyrinth'));
-
-    for (let i = 0; i < LABYRINTH_SIZE; i++) {
-        for (let j = 0; j < LABYRINTH_SIZE; j++) {
-            if (matrix[i][j] === 0) {
-                x = i;
-                z = j;
-                break;
-            }
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
         }
-        if (x || z) break;
-    }
 
-    playerBody.position.set(x * CELL_SIZE + CELL_SIZE / 2, PLAYER_HEIGHT, z * CELL_SIZE + CELL_SIZE / 2);
-    playerBody.velocity.set(0, 0, 0);
-    controls.getObject().position.copy(playerBody.position);
-}
+        function toggleCollision() {
+            collisionEnabled = !collisionEnabled;
+            const button = document.getElementById('toggleCollisionBtn');
+            button.textContent = collisionEnabled ? 'Disable Collision' : 'Enable Collision';
+            button.style.background = collisionEnabled ? '#ff4136' : '#4CAF50';
+        }
 
-function onWindowResize() {
-    camera.aspect = window.innerWidth / window.innerHeight;
-    camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
-}
+        init();
 
-function onKeyDown(event) {
-    switch (event.code) {
-        case 'ArrowUp':
-        case 'KeyW':
-            moveForward = true;
-            break;
-        case 'ArrowLeft':
-        case 'KeyA':
-            moveLeft = true;
-            break;
-        case 'ArrowDown':
-        case 'KeyS':
-            moveBackward = true;
-            break;
-        case 'ArrowRight':
-        case 'KeyD':
-            moveRight = true;
-            break;
-        case 'ShiftLeft':
-            sprint = true;
-            break;
-        case 'Space':
-            if (canJump) {
-                playerBody.velocity.y = 10;
-            }
-            canJump = false;
-            break;
-    }
-}
-
-function onKeyUp(event) {
-    switch (event.code) {
-        case 'ArrowUp':
-        case 'KeyW':
-            moveForward = false;
-            break;
-        case 'ArrowLeft':
-        case 'KeyA':
-            moveLeft = false;
-            break;
-        case 'ArrowDown':
-        case 'KeyS':
-            moveBackward = false;
-            break;
-        case 'ArrowRight':
-        case 'KeyD':
-            moveRight = false;
-            break;
-        case 'ShiftLeft':
-            sprint = false;
-            break;
-    }
-}
-
-init();
-</script>
+    </script>
 </body>
 </html>
