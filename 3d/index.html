@@ -61,16 +61,11 @@ https://chatgpt.com/c/66ebd04b-91c8-8005-be45-a9c56f4aa07c
 
         class Game {
             constructor() {
-                this.init();
-            }
-
-            init() {
                 this.setupScene();
                 this.setupPhysics();
-                this.player = new Player(this);
                 this.labyrinth = new Labyrinth(this);
+                this.player = new Player(this);
                 this.setupEventListeners();
-                this.labyrinth.draw();
                 this.player.resetPosition();
                 this.animate();
                 window.addEventListener('resize', this.onWindowResize.bind(this));
@@ -124,9 +119,11 @@ https://chatgpt.com/c/66ebd04b-91c8-8005-be45-a9c56f4aa07c
 
             animate() {
                 requestAnimationFrame(this.animate.bind(this));
-                const delta = (performance.now() - (this.prevTime || performance.now())) / 1000;
+                const time = performance.now();                                
+                const delta = (performance.now() - (this.prevTime || time)) / 1000;
                 this.world.step(Config.TIME_STEP);
-                this.player.update(delta);
+                this.player.animate(delta, time);
+                this.labyrinth.animate(delta, time);
                 this.renderer.render(this.scene, this.camera);
                 this.prevTime = performance.now();
             }
@@ -149,10 +146,6 @@ https://chatgpt.com/c/66ebd04b-91c8-8005-be45-a9c56f4aa07c
         class Player {
             constructor(game) {
                 this.game = game;
-                this.init();
-            }
-
-            init() {
                 this.move = { forward: false, backward: false, left: false, right: false, sprint: false };
                 this.canJump = false;
                 this.direction = new THREE.Vector3();
@@ -172,7 +165,7 @@ https://chatgpt.com/c/66ebd04b-91c8-8005-be45-a9c56f4aa07c
                 this.game.controls.getObject().position.copy(this.body.position);
             }
 
-            update(delta) {
+            animate(delta, time) {
                 const { controls, camera } = this.game;
                 if (controls.isLocked) {
                     this.direction.set(
@@ -216,7 +209,15 @@ https://chatgpt.com/c/66ebd04b-91c8-8005-be45-a9c56f4aa07c
         class Labyrinth {
             constructor(game) {
                 this.game = game;
+                this.orbs = [];
                 this.wallBodies = [];
+                this.cachedGeometries = {};  // Cache for geometries based on dimensions
+                this.wallMaterial = new THREE.MeshPhongMaterial({
+                    map: new THREE.TextureLoader().load('https://threejs.org/examples/textures/brick_diffuse.jpg')
+                });
+                this.wallBodies = [];
+
+                this.draw();
             }
 
             generate(width = Config.LABYRINTH_SIZE, height = Config.LABYRINTH_SIZE) {
@@ -298,7 +299,41 @@ https://chatgpt.com/c/66ebd04b-91c8-8005-be45-a9c56f4aa07c
                 this.game.scene.add(this.group);
                 this.createWalls();
                 this.createFloor();
-                this.game.player.resetPosition();
+                this.orbs = [
+                    [this.getStartPosition(), 0xFF0000], 
+                    ...this.getEndPositions().map(p=>[p, 0x00FF00])
+                ].map(([p, color])=>this.createOrb(p, color));
+                
+                if(this.game.player){
+                    this.game.player.resetPosition();
+                }
+            }
+
+            animate(delta, time){
+                this.orbs.forEach(child=>{
+                    child.position.y = child.userData.initialY + Math.sin(time * 0.003) * 0.5;
+                })                
+            }
+
+            createOrb(pos, color) {
+                const orbGeometry = new THREE.SphereGeometry(0.5, 32, 32);
+                const orbMaterial = new THREE.MeshBasicMaterial({ color: color });
+                const orb = new THREE.Mesh(orbGeometry, orbMaterial);
+
+                // Set orb position based on the cell's column and row
+                orb.position.set(pos.x, Config.WALL_HEIGHT / 2, pos.z);
+
+                // Create and position the light source at the same place as the orb
+                const light = new THREE.PointLight(orbMaterial.color, 1, Config.CELL_SIZE * 2);
+                orb.add(light);
+                                
+                // Store initial data for later use if necessary
+                orb.userData = {
+                    initialY: orb.position.y,
+                    light: light
+                };
+                this.group.add(orb);
+                return orb;
             }
 
             getFreeBorders(){
@@ -315,29 +350,70 @@ https://chatgpt.com/c/66ebd04b-91c8-8005-be45-a9c56f4aa07c
                 return freeBorders;
             }
 
-            createWalls() {
-                const wallGeo = new THREE.BoxGeometry(Config.CELL_SIZE, Config.WALL_HEIGHT, Config.CELL_SIZE);
-                const wallMat = new THREE.MeshPhongMaterial({ map: new THREE.TextureLoader().load('https://threejs.org/examples/textures/brick_diffuse.jpg') });
+            // Method to cache geometries
+            getCachedGeometry(width, height, depth) {
+                const key = `${width}_${height}_${depth}`;
+                if (!this.cachedGeometries[key]) {
+                    this.cachedGeometries[key] = new THREE.BoxGeometry(width, height, depth);
+                }
+                return this.cachedGeometries[key];
+            }
 
+            // Method to place a wall (invisible or visible)
+            placeWall(from, to, height, invisible = false) {
+                // Calculate wall dimensions and position
+                const width = Math.abs(to[0] - from[0]) * Config.CELL_SIZE || Config.CELL_SIZE;
+                const depth = Math.abs(to[1] - from[1]) * Config.CELL_SIZE || Config.CELL_SIZE;
+                const x = (from[0] + to[0]) / 2 * Config.CELL_SIZE + Config.CELL_SIZE / 2;
+                const z = (from[1] + to[1]) / 2 * Config.CELL_SIZE + Config.CELL_SIZE / 2;
+
+                const sizeX = (from[0] === to[0]) ? Config.CELL_SIZE / 2 : width / 2;
+                const sizeZ = (from[1] === to[1]) ? Config.CELL_SIZE / 2 : depth / 2;
+
+                // Create CANNON body for physics
+                const shape = new CANNON.Box(new CANNON.Vec3(sizeX, height / 2, sizeZ));
+                const body = new CANNON.Body({ mass: 0, shape });
+                body.position.set(x, height / 2, z);
+                this.game.world.addBody(body);
+                this.wallBodies.push(body);
+
+                // If the wall is visible, create or reuse geometry and add it to the scene
+                if (!invisible) {
+                    const wallGeo = this.getCachedGeometry(width, height, depth);
+                    const wall = new THREE.Mesh(wallGeo, this.wallMaterial);
+                    wall.position.set(x, height / 2, z);
+                    wall.castShadow = true;
+                    wall.receiveShadow = true;
+                    this.group.add(wall);
+                }
+            }
+
+            // Main method to create all walls
+            createWalls() {
+                // Clear existing walls
                 this.wallBodies.forEach(body => this.game.world.removeBody(body));
                 this.wallBodies = [];
 
+                // Create visible maze walls
                 for (let i = 0; i < this.matrix.length; i++) {
                     for (let j = 0; j < this.matrix[i].length; j++) {
                         if (this.matrix[i][j] === 1) {
-                            const wall = new THREE.Mesh(wallGeo, wallMat);
-                            wall.position.set(i * Config.CELL_SIZE + Config.CELL_SIZE / 2, Config.WALL_HEIGHT / 2, j * Config.CELL_SIZE + Config.CELL_SIZE / 2);
-                            wall.castShadow = true; wall.receiveShadow = true;
-                            this.group.add(wall);
-
-                            const shape = new CANNON.Box(new CANNON.Vec3(Config.CELL_SIZE / 2, Config.WALL_HEIGHT / 2, Config.CELL_SIZE / 2));
-                            const body = new CANNON.Body({ mass: 0, shape, material: new CANNON.Material('wallMaterial') });
-                            body.position.copy(wall.position);
-                            this.game.world.addBody(body);
-                            this.wallBodies.push(body);
+                            this.placeWall([i, j], [i, j], Config.WALL_HEIGHT);
                         }
                     }
                 }
+
+                // Create invisible boundary walls
+                const boundaryWalls = ((W, H)=>[
+                    [[-1, -1], [-1, W] ],   // Left wall
+                    [[H, -1], [H, W]],      // Right wall
+                    [[-1, -1], [H, -1]],    // Top wall
+                    [[-1, W], [H, W]]       // Bottom wall
+                ])(this.matrix[0].length, this.matrix.length);
+
+                boundaryWalls.forEach(([from, to]) => {
+                    this.placeWall(from, to, Config.WALL_HEIGHT * 5, true);
+                });
             }
 
             createFloor() {
