@@ -61,6 +61,7 @@ https://chatgpt.com/c/66ebd04b-91c8-8005-be45-a9c56f4aa07c
 
         class Game {
             constructor() {
+                this.collisionEnabled = true;
                 this.setupScene();
                 this.setupPhysics();
                 this.labyrinth = new Labyrinth(this);
@@ -138,8 +139,11 @@ https://chatgpt.com/c/66ebd04b-91c8-8005-be45-a9c56f4aa07c
                 this.collisionEnabled = !this.collisionEnabled;
                 const btn = document.getElementById('toggleCollisionBtn');
                 btn.textContent = this.collisionEnabled ? 'Disable Collision' : 'Enable Collision';
-                btn.style.background = this.collisionEnabled ? '#ff4136' : '#4CAF50';
-                this.world.bodies.forEach(body => body.collisionResponse = this.collisionEnabled);
+                console.log(this.collisionEnabled, btn);
+                btn.style.background = this.collisionEnabled ? '#4CAF50' : '#ff4136';
+                this.world.bodies.forEach(body => {
+                    body.collisionResponse = body.lockedCollisions || this.collisionEnabled
+                });
             }
         }
 
@@ -154,6 +158,7 @@ https://chatgpt.com/c/66ebd04b-91c8-8005-be45-a9c56f4aa07c
                     mass: 5, shape, material: new CANNON.Material('playerMaterial'),
                     linearDamping: 0.9, angularDamping: 0.9
                 });
+                this.body.lockedCollisions = true;
                 this.body.position.set(0, Config.PLAYER_HEIGHT, 0);
                 this.game.world.addBody(this.body);
             }
@@ -379,12 +384,15 @@ https://chatgpt.com/c/66ebd04b-91c8-8005-be45-a9c56f4aa07c
 
                 // If the wall is visible, create or reuse geometry and add it to the scene
                 if (!invisible) {
+                    body.collisionResponse = this.game.collisionEnabled;
                     const wallGeo = this.getCachedGeometry(width, height, depth);
                     const wall = new THREE.Mesh(wallGeo, this.wallMaterial);
                     wall.position.set(x, height / 2, z);
                     wall.castShadow = true;
                     wall.receiveShadow = true;
                     this.group.add(wall);
+                }else{
+                    body.lockedCollisions = true;
                 }
             }
 
