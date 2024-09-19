@@ -209,6 +209,7 @@
             }
 
             generate(width = Config.LABYRINTH_SIZE, height = Config.LABYRINTH_SIZE) {
+                // Resulting size may be different from the requested size
                 function neighbors(maze, ic, jc) {
                     var final = [];
                     for (var i = 0; i < 4; i++) {
@@ -338,8 +339,8 @@
 
 
             getStartPosition() {
-                for (let i = 0; i < Config.LABYRINTH_SIZE; i++) {
-                    for (let j = 0; j < Config.LABYRINTH_SIZE; j++) {
+                for (let i = 0; i < this.matrix.length; i++) {
+                    for (let j = 0; j < this.matrix[i].length; j++) {
                         if (this.matrix[i][j] === 0) {
                             return { x: i * Config.CELL_SIZE + Config.CELL_SIZE / 2, z: j * Config.CELL_SIZE + Config.CELL_SIZE / 2 };
                         }
