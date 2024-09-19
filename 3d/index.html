@@ -288,12 +288,28 @@ Interesting prompts:
 
             draw(matrix = null) {
                 this.matrix = matrix || this.generate();
+                this.freeBorders = this.getFreeBorders();
+
                 if (this.group) this.game.scene.remove(this.group);
                 this.group = new THREE.Group();
                 this.game.scene.add(this.group);
                 this.createWalls();
                 this.createFloor();
                 this.game.player.resetPosition();
+            }
+
+            getFreeBorders(){
+                const freeBorders = [];
+                for (let i = 0; i < this.matrix.length; i++) {
+                    for (let j = 0; j < this.matrix[i].length; j++) {
+                        if(i > 0 && j > 0 && i < this.matrix.length - 1 && j < this.matrix[i].length -1 ) continue;
+                        if(![0, this.matrix.length-1].includes(i)) continue;
+                        if (this.matrix[i][j] === 0) {
+                            freeBorders.push([i,j]);
+                        }
+                    }
+                }
+                return freeBorders;
             }
 
             createWalls() {
@@ -345,16 +361,15 @@ Interesting prompts:
                 this.game.world.addBody(body);
             }
 
-
             getStartPosition() {
-                for (let i = 0; i < this.matrix.length; i++) {
-                    for (let j = 0; j < this.matrix[i].length; j++) {
-                        if (this.matrix[i][j] === 0) {
-                            return { x: i * Config.CELL_SIZE + Config.CELL_SIZE / 2, z: j * Config.CELL_SIZE + Config.CELL_SIZE / 2 };
-                        }
-                    }
-                }
-                return { x: 0, z: 0 };
+                const [i,j] = this.freeBorders[0];
+                return { x: i * Config.CELL_SIZE + Config.CELL_SIZE / 2, z: j * Config.CELL_SIZE + Config.CELL_SIZE / 2 };
+            }
+
+            getEndPositions(){
+                return this.freeBorders.slice(1).map(([i,j])=>{
+                    return { x: i * Config.CELL_SIZE + Config.CELL_SIZE / 2, z: j * Config.CELL_SIZE + Config.CELL_SIZE / 2 };
+                });
             }
 
             save() {
