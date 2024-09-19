@@ -294,8 +294,8 @@
                 this.wallBodies.forEach(body => this.game.world.removeBody(body));
                 this.wallBodies = [];
 
-                for (let i = 0; i < Config.LABYRINTH_SIZE; i++) {
-                    for (let j = 0; j < Config.LABYRINTH_SIZE; j++) {
+                for (let i = 0; i < this.matrix.length; i++) {
+                    for (let j = 0; j < this.matrix[i].length; j++) {
                         if (this.matrix[i][j] === 1) {
                             const wall = new THREE.Mesh(wallGeo, wallMat);
                             wall.position.set(i * Config.CELL_SIZE + Config.CELL_SIZE / 2, Config.WALL_HEIGHT / 2, j * Config.CELL_SIZE + Config.CELL_SIZE / 2);
@@ -313,18 +313,19 @@
             }
 
             createFloor() {
-                const floorSize = Config.LABYRINTH_SIZE * Config.CELL_SIZE;
-                const floorGeo = new THREE.PlaneGeometry(floorSize, floorSize);
+                const floorSizeH = this.matrix.length * Config.CELL_SIZE;
+                const floorSizeW = (this.matrix?.[0]?.length??0) * Config.CELL_SIZE;
+                const floorGeo = new THREE.PlaneGeometry(floorSizeW, floorSizeH);
                 
                 // Load and configure the floor texture
                 const floorTexture = new THREE.TextureLoader().load('https://threejs.org/examples/textures/hardwood2_diffuse.jpg');
                 floorTexture.wrapS = floorTexture.wrapT = THREE.RepeatWrapping;
-                floorTexture.repeat.set(Config.LABYRINTH_SIZE, Config.LABYRINTH_SIZE);
+                floorTexture.repeat.set(floorSizeW/5, floorSizeH/5);
                 
                 const floorMat = new THREE.MeshPhongMaterial({ map: floorTexture });
                 const floor = new THREE.Mesh(floorGeo, floorMat);
                 floor.rotation.x = -Math.PI / 2;
-                floor.position.set(floorSize / 2, 0, floorSize / 2);
+                floor.position.set(floorSizeW / 2, 0, floorSizeH / 2);
                 floor.receiveShadow = true;
                 this.group.add(floor);
 
