@@ -290,6 +290,10 @@
             createWalls() {
                 const wallGeo = new THREE.BoxGeometry(Config.CELL_SIZE, Config.WALL_HEIGHT, Config.CELL_SIZE);
                 const wallMat = new THREE.MeshPhongMaterial({ map: new THREE.TextureLoader().load('https://threejs.org/examples/textures/brick_diffuse.jpg') });
+
+                this.wallBodies.forEach(body => this.game.world.removeBody(body));
+                this.wallBodies = [];
+
                 for (let i = 0; i < Config.LABYRINTH_SIZE; i++) {
                     for (let j = 0; j < Config.LABYRINTH_SIZE; j++) {
                         if (this.matrix[i][j] === 1) {
